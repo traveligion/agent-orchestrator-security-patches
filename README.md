@@ -3,7 +3,7 @@
 Three small, independent patches for [OrchestratorInc/agent-orchestrator](https://github.com/OrchestratorInc/agent-orchestrator). Together they upgrade the desktop app from the end-of-life Electron 33.4.11 to Electron 44.7.0, harden the packaged binary with Electron fuses, and update the vulnerable dependencies that ship inside the app. Each patch is a `git am`-ready commit with a full explanation in its message. They were built and tested on Linux x64 against upstream `main` at the base commit listed below.
 
 > [!IMPORTANT]
-> **Unofficial.** This repository is not affiliated with or endorsed by the Agent Orchestrator maintainers. The patches are offered as a proposal and for people who build the app themselves. Use them at your own risk. Upstream is licensed under Apache-2.0, and these patches are offered under Apache-2.0 as well (see [LICENSE](LICENSE)). Upstream discussion: [OrchestratorInc/agent-orchestrator#ISSUE_NUMBER](ISSUE_URL).
+> **Unofficial.** This repository is not affiliated with or endorsed by the Agent Orchestrator maintainers. The patches are offered as a proposal and for people who build the app themselves. Use them at your own risk. Upstream is licensed under Apache-2.0, and these patches are offered under Apache-2.0 as well (see [LICENSE](LICENSE)). Upstream discussion: [OrchestratorInc/agent-orchestrator#6446](https://github.com/OrchestratorInc/agent-orchestrator/issues/6446).
 
 ## Contents
 
@@ -190,7 +190,7 @@ With all three patches, `npm audit` in `frontend/` still reports 40 findings (1 
 
 ## Upstream
 
-- Issue: [OrchestratorInc/agent-orchestrator#ISSUE_NUMBER](ISSUE_URL)
+- Issue: [OrchestratorInc/agent-orchestrator#6446](https://github.com/OrchestratorInc/agent-orchestrator/issues/6446)
 - The patches are split so that each one can become its own small PR, following upstream's one-issue-per-PR rule.
 
 ## About this work
