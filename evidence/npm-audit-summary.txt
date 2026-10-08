@@ -1,0 +1,26 @@
+npm audit summary, frontend/ (advisory database as of 2026-10-08/09)
+
+                                   upstream base   with 0001-0003
+npm audit --omit=dev (shipped)     7               0
+  critical / high / mod / low      1 / 2 / 1 / 3   0
+npm audit (all, incl. build-time)  60              40
+  critical / high / mod / low      2 / 40 / 12 / 6 1 / 29 / 7 / 3
+
+packages/product-ui  npm audit:    4  -> 0
+packages/cloud-client npm audit:   6  -> 0
+
+Shipped (production tree) packages flagged on the base:
+  seroval 1.5.4      critical  GHSA-p6vx-979v-rg4c; high GHSA-jp82-f5mq-hwhp
+  js-yaml 4.2.0      high      GHSA-52cp-r559-cp3m, GHSA-5p4m-2wfm-xmqj, GHSA-2883-xcg3-v3hh
+  brace-expansion    high      (several DoS advisories)
+  fflate 0.4.8       moderate  GHSA-px8p-9vwx-vf98
+  dompurify 3.4.14   low       GHSA-p98j-92pf-mc4p, GHSA-6688-9rhm-gjv2
+  katex 0.16.47      low       GHSA-238p-pmpm-9mq7
+  mermaid            low       (via katex)
+
+electron 33.4.11 (devDependency, but it is the runtime that ships in the app):
+  38 advisories: 11 high, 21 moderate, 6 low
+
+Remaining after the patches (all build-time only): Electron Forge 7 toolchain,
+most notably tar 6.2.1 (critical) pulled in by @electron/rebuild 3.x through
+@electron-forge/cli, core and shared-types.

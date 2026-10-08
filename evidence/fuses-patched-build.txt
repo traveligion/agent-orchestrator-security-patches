@@ -1,0 +1,30 @@
+Fuse readout of a build with patches 0001-0003 applied (after)
+
+Built on Linux x64 with `npm run package` and
+`npx electron-forge make --skip-package --targets @electron-forge/maker-deb`.
+Electron: 44.7.0
+@electron/fuses: 1.8.0 (via @electron-forge/plugin-fuses 7.11.2)
+
+Identical output for out/Agent Orchestrator-linux-x64/agent-orchestrator and for
+usr/lib/agent-orchestrator/agent-orchestrator extracted from the built .deb:
+
+$ npx @electron/fuses read --app agent-orchestrator
+Analyzing app: agent-orchestrator
+Fuse Version: v1
+  RunAsNode is Disabled
+  EnableCookieEncryption is Disabled
+  EnableNodeOptionsEnvironmentVariable is Disabled
+  EnableNodeCliInspectArguments is Disabled
+  EnableEmbeddedAsarIntegrityValidation is Enabled
+  OnlyLoadAppFromAsar is Enabled
+  LoadBrowserProcessSpecificV8Snapshot is Disabled
+  GrantFileProtocolExtraPrivileges is Disabled
+  undefined is Enabled
+
+The last line is a newer fuse present in the Electron 44 binary that
+@electron/fuses 1.8.0 does not have a name for; it is left at Electron's
+default and is not touched by this patch set.
+
+RunAsNode in practice:
+$ ELECTRON_RUN_AS_NODE=1 ./agent-orchestrator -e 'console.log("NODE_MODE " + process.version)'
+(no NODE_MODE output: the variable is ignored and the normal app starts instead)

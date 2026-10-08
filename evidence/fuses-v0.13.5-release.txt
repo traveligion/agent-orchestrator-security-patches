@@ -1,0 +1,24 @@
+Fuse readout of the released Linux binary (before)
+
+Artifact: agent-orchestrator-linux-x64.deb from release v0.13.5
+          https://github.com/OrchestratorInc/agent-orchestrator/releases/tag/v0.13.5
+SHA-256:  336d8aef2b812f43bcaf88a979a29ab22f5268c773d68fe35cc5a708f5648716
+Package:  agent-orchestrator 0.13.5 amd64
+Binary:   usr/lib/agent-orchestrator/agent-orchestrator (from dpkg-deb -x)
+Electron: 33.4.11 (usr/lib/agent-orchestrator/version), Chrome/130.0.6723.191
+
+$ npx @electron/fuses read --app usr/lib/agent-orchestrator/agent-orchestrator
+Analyzing app: agent-orchestrator
+Fuse Version: v1
+  RunAsNode is Enabled
+  EnableCookieEncryption is Disabled
+  EnableNodeOptionsEnvironmentVariable is Enabled
+  EnableNodeCliInspectArguments is Enabled
+  EnableEmbeddedAsarIntegrityValidation is Disabled
+  OnlyLoadAppFromAsar is Disabled
+  LoadBrowserProcessSpecificV8Snapshot is Disabled
+  GrantFileProtocolExtraPrivileges is Enabled
+
+RunAsNode in practice:
+$ ELECTRON_RUN_AS_NODE=1 usr/lib/agent-orchestrator/agent-orchestrator -e 'console.log("NODE_MODE " + process.version)'
+NODE_MODE v20.18.3

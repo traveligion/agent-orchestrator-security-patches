@@ -1,0 +1,15 @@
+CORS check results (evidence/cors-check/main.js)
+Run on Linux x64 under Xvfb, 2026-10-09.
+
+CORS_CHECK electron=33.4.11 corsEnabled=false result=READ:SECRET handlerHits=1
+CORS_CHECK electron=33.4.11 corsEnabled=true result=READ:SECRET handlerHits=1
+CORS_CHECK electron=44.7.0 corsEnabled=false result=BLOCKED:Failed to fetch handlerHits=0
+CORS_CHECK electron=44.7.0 corsEnabled=true result=READ:SECRET handlerHits=1
+
+Reading:
+- 33.4.11 (shipped in v0.13.5): a cross-origin page can read app:// responses
+  regardless of corsEnabled (GHSA-v3j7-r9gq-3gjw).
+- 44.7.0 with the app's current registration (no corsEnabled): blocked, and the
+  protocol handler is not even invoked.
+- 44.7.0 with corsEnabled: true: readable again. corsEnabled opts the scheme in
+  to cross-origin reads; it is not a mitigation.

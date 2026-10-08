@@ -1,0 +1,5 @@
+{
+  "name": "ao-cors-check",
+  "private": true,
+  "main": "main.js"
+}

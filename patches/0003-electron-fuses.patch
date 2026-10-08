@@ -1,0 +1,152 @@
+From 9a778a85366727d338218852383e00b64b670b46 Mon Sep 17 00:00:00 2001
+From: Traveligion <137474479+traveligion@users.noreply.github.com>
+Date: Fri, 9 Oct 2026 01:44:54 +0700
+Subject: [PATCH 3/3] build(electron): harden the packaged binary with Electron
+ fuses
+
+Problem
+
+The released binary keeps every security-relevant fuse at Electron's
+permissive default. `npx @electron/fuses read` on the v0.13.5 .deb:
+
+  RunAsNode is Enabled
+  EnableCookieEncryption is Disabled
+  EnableNodeOptionsEnvironmentVariable is Enabled
+  EnableNodeCliInspectArguments is Enabled
+  EnableEmbeddedAsarIntegrityValidation is Disabled
+  OnlyLoadAppFromAsar is Disabled
+  LoadBrowserProcessSpecificV8Snapshot is Disabled
+  GrantFileProtocolExtraPrivileges is Enabled
+
+With RunAsNode enabled, `ELECTRON_RUN_AS_NODE=1 agent-orchestrator -e ...`
+turns the app binary into a general-purpose Node.js interpreter
+(verified on 0.13.5: it prints Node v20.18.3). Together with NODE_OPTIONS
+and --inspect, this lets other local code run under the app's identity and
+inherit any OS-level trust or permissions granted to it. Electron
+recommends disabling these fuses for apps that do not need them:
+https://www.electronjs.org/docs/latest/tutorial/fuses
+
+Changes
+
+Add @electron-forge/plugin-fuses 7.11.2 (same version as the rest of Forge)
+and @electron/fuses 1.8.0, and flip at package time:
+
+- RunAsNode: false
+- EnableNodeOptionsEnvironmentVariable: false
+- EnableNodeCliInspectArguments: false
+- EnableEmbeddedAsarIntegrityValidation: true
+- OnlyLoadAppFromAsar: true
+- GrantFileProtocolExtraPrivileges: false
+
+The app does not use ELECTRON_RUN_AS_NODE, NODE_OPTIONS, --inspect,
+child_process.fork or utilityProcess (checked with git grep), and the ACP
+runtime ships its own Node binary. `electron-forge start` and the
+Playwright e2e launch the unfused node_modules/electron binary, so they
+are not affected. For unsigned macOS arm64 builds the Forge plugin resets
+the ad-hoc signature after flipping fuses.
+
+Tested on Linux x64: `npx @electron/fuses read` on out/ and on the built
+.deb shows the values above; `ELECTRON_RUN_AS_NODE=1` no longer drops into
+Node; the app launches normally, renders the home screen and starts the
+daemon. Not tested: macOS and Windows. ASAR integrity validation is only
+enforced on macOS and Windows, so it is a no-op on Linux and needs
+validation with the signed macOS and Windows builds.
+---
+ frontend/forge.config.ts   | 18 ++++++++++++++++++
+ frontend/package-lock.json | 19 +++++++++++++++++++
+ frontend/package.json      |  2 ++
+ 3 files changed, 39 insertions(+)
+
+diff --git a/frontend/forge.config.ts b/frontend/forge.config.ts
+index 4cb258086..ea1ff078b 100644
+--- a/frontend/forge.config.ts
++++ b/frontend/forge.config.ts
+@@ -1,6 +1,8 @@
+ import type { ForgeConfig } from "@electron-forge/shared-types";
+ import { AutoUnpackNativesPlugin } from "@electron-forge/plugin-auto-unpack-natives";
+ import { VitePlugin } from "@electron-forge/plugin-vite";
++import { FusesPlugin } from "@electron-forge/plugin-fuses";
++import { FuseV1Options, FuseVersion } from "@electron/fuses";
+ import { rebuild } from "@electron/rebuild";
+ import electronPackage from "electron/package.json";
+ import MakerNSIS from "./makers/maker-nsis";
+@@ -379,6 +381,22 @@ const config: ForgeConfig = {
+ 			],
+ 			renderer: [{ name: "main_window", config: "vite.renderer.config.ts" }],
+ 		}),
++		// Harden the packaged Electron binary. Flipped at package time, so dev
++		// (electron-forge start) and Playwright e2e, which launch the unfused
++		// node_modules/electron binary, are unaffected.
++		new FusesPlugin({
++			version: FuseVersion.V1,
++			// The app never re-execs itself as Node (no ELECTRON_RUN_AS_NODE /
++			// fork / utilityProcess); acp-runtime ships its own Node binary.
++			[FuseV1Options.RunAsNode]: false,
++			[FuseV1Options.EnableNodeOptionsEnvironmentVariable]: false,
++			[FuseV1Options.EnableNodeCliInspectArguments]: false,
++			// Enforced on macOS and Windows; Electron does not validate ASAR
++			// integrity on Linux.
++			[FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: true,
++			[FuseV1Options.OnlyLoadAppFromAsar]: true,
++			[FuseV1Options.GrantFileProtocolExtraPrivileges]: false,
++		}),
+ 	],
+ };
+ 
+diff --git a/frontend/package-lock.json b/frontend/package-lock.json
+index c6cc8db3b..570eb0982 100644
+--- a/frontend/package-lock.json
++++ b/frontend/package-lock.json
+@@ -80,8 +80,10 @@
+ 				"@electron-forge/maker-rpm": "^7.8.0",
+ 				"@electron-forge/maker-zip": "^7.8.0",
+ 				"@electron-forge/plugin-auto-unpack-natives": "^7.8.0",
++				"@electron-forge/plugin-fuses": "^7.11.2",
+ 				"@electron-forge/plugin-vite": "^7.8.0",
+ 				"@electron-forge/publisher-github": "^7.8.0",
++				"@electron/fuses": "^1.8.0",
+ 				"@electron/rebuild": "^4.0.4",
+ 				"@playwright/test": "^1.60.0",
+ 				"@tailwindcss/vite": "^4.3.0",
+@@ -1663,6 +1665,23 @@
+ 				"node": ">= 16.4.0"
+ 			}
+ 		},
++		"node_modules/@electron-forge/plugin-fuses": {
++			"version": "7.11.2",
++			"resolved": "https://registry.npmjs.org/@electron-forge/plugin-fuses/-/plugin-fuses-7.11.2.tgz",
++			"integrity": "sha512-Y65MwTmYY0ytwtUy+u9M77rEe8MeMdRR+V2IsjAozIzAVp/38NJXfF7+AqlqE9M/fDENjPuwKnrg2IOj9P1TRg==",
++			"dev": true,
++			"license": "MIT",
++			"dependencies": {
++				"@electron-forge/plugin-base": "7.11.2",
++				"@electron-forge/shared-types": "7.11.2"
++			},
++			"engines": {
++				"node": ">= 16.4.0"
++			},
++			"peerDependencies": {
++				"@electron/fuses": "^1.0.0"
++			}
++		},
+ 		"node_modules/@electron-forge/plugin-vite": {
+ 			"version": "7.11.2",
+ 			"resolved": "https://registry.npmjs.org/@electron-forge/plugin-vite/-/plugin-vite-7.11.2.tgz",
+diff --git a/frontend/package.json b/frontend/package.json
+index 245257fe3..92c618490 100644
+--- a/frontend/package.json
++++ b/frontend/package.json
+@@ -42,8 +42,10 @@
+ 		"@electron-forge/maker-rpm": "^7.8.0",
+ 		"@electron-forge/maker-zip": "^7.8.0",
+ 		"@electron-forge/plugin-auto-unpack-natives": "^7.8.0",
++		"@electron-forge/plugin-fuses": "^7.11.2",
+ 		"@electron-forge/plugin-vite": "^7.8.0",
+ 		"@electron-forge/publisher-github": "^7.8.0",
++		"@electron/fuses": "^1.8.0",
+ 		"@electron/rebuild": "^4.0.4",
+ 		"@playwright/test": "^1.60.0",
+ 		"@tailwindcss/vite": "^4.3.0",
+-- 
+2.47.3
+
