@@ -1,6 +1,6 @@
 # Agent Orchestrator: unofficial security patches
 
-Three small, independent patches for [OrchestratorInc/agent-orchestrator](https://github.com/OrchestratorInc/agent-orchestrator). Together they upgrade the desktop app from the end-of-life Electron 33.4.11 to Electron 44.7.0, harden the packaged binary with Electron fuses, and update the vulnerable dependencies that ship inside the app. Each patch is a `git am`-ready commit with a full explanation in its message. They were built and tested on Linux x64 against upstream `main` at the base commit listed below.
+Three small, independent patches for [OrchestratorInc/agent-orchestrator](https://github.com/OrchestratorInc/agent-orchestrator). Together they upgrade the desktop app from the end-of-life Electron 33.4.11 to Electron 44.7.0, harden the packaged binary with Electron fuses, and update the vulnerable dependencies that ship inside the app. Each patch is a `git am`-ready commit with a full explanation in its message. They were built and tested on Linux x64 against upstream `main` at the base commit listed below, and have since been verified on an Apple Silicon Mac in daily use.
 
 > [!IMPORTANT]
 > **Unofficial.** This repository is not affiliated with or endorsed by the Agent Orchestrator maintainers. The patches are offered as a proposal and for people who build the app themselves. Use them at your own risk. Upstream is licensed under Apache-2.0, and these patches are offered under Apache-2.0 as well (see [LICENSE](LICENSE)). Upstream discussion: [OrchestratorInc/agent-orchestrator#6446](https://github.com/OrchestratorInc/agent-orchestrator/issues/6446).
@@ -26,12 +26,16 @@ Upstream moves quickly. The lockfile hunks in particular will stop applying clea
 
 ## Problem
 
+Agent Orchestrator runs coding agents with access to the user's source code, sessions and credentials, so a compromise of the desktop app is high-impact. Each problem below ends with a realistic "What could happen" scenario. These describe what the weakness makes possible. We know of no exploitation of any of them against Agent Orchestrator.
+
 ### 1. The desktop app ships an end-of-life Electron
 
 - The v0.13.5 Linux package (`agent-orchestrator-linux-x64.deb`) contains **Electron 33.4.11** (Chrome 130.0.6723.191), as read from the bundled `version` file and the binary.
 - Electron 33 reached end-of-life on **2025-04-28** ([endoflife.date](https://endoflife.date/electron)), and 33.4.11 is its last release.
 - On 2026-10-08, `npm audit` listed **38 advisories** against `electron@33.4.11`: 11 high, 21 moderate, 6 low.
 - At the time of writing, upstream has two open Dependabot PRs that bump Electron: [#5839](https://github.com/OrchestratorInc/agent-orchestrator/pull/5839) (→ 39.8.10) and [#6060](https://github.com/OrchestratorInc/agent-orchestrator/pull/6060) (→ 41.10.6). Both target lines that are already end-of-life (39 on 2026-05-05, 41 on 2026-08-24). The supported lines are currently 42, 43 and 44, and 44 is supported until 2027-03-02.
+
+**What could happen:** the embedded browser renders arbitrary web pages with Chromium 130, which no longer receives security fixes. A malicious or compromised page opened there, for example a link from an issue, a PR description or agent output, could use a publicly known Chromium/V8 bug to take over the renderer and, chained with a sandbox escape, run code with the app's privileges. That process can reach the user's repositories, agent sessions, API keys and tokens, and browser cookies imported into the embedded browser. New Chromium bugs of this kind are found regularly, and on Electron 33 their fixes no longer arrive.
 
 ### 2. GHSA-v3j7-r9gq-3gjw applies to the `app://` renderer scheme
 
@@ -44,6 +48,8 @@ protocol.registerSchemesAsPrivileged([
 ```
 
 [GHSA-v3j7-r9gq-3gjw](https://github.com/electron/electron/security/advisories/GHSA-v3j7-r9gq-3gjw) (high, CVSS 7.4) describes this exact configuration: on affected Electron versions, a page from another origin in the same session can `fetch()` the scheme and read the response. It is fixed in 39.8.10, 40.9.3, 41.4.0 and 42.0.0. Practical impact depends on whether untrusted content can ever load in the default session. In the upstream code the embedded browser uses separate session partitions, while `app://` is registered on the default session only. The safe fix either way is to run an Electron version that enforces CORS for the scheme. The reproduction in [`evidence/cors-check/`](evidence/cors-check/) confirms that 33.4.11 is affected (see the table [below](#why-corsenabled-is-deliberately-not-added)).
+
+**What could happen:** if a page from another origin ever runs in the default session, for example through a future change in how links or previews are opened, its script could `fetch()` `app://` URLs and read the responses: the renderer's code and anything else the `app://` handler serves. The app's own same-origin boundary would not hold. Today this needs such a page to reach the default session, so it is a latent weakness rather than a known attack path.
 
 ### 3. No Electron fuses are set
 
@@ -62,6 +68,8 @@ GrantFileProtocolExtraPrivileges is Enabled
 
 With `RunAsNode` enabled, `ELECTRON_RUN_AS_NODE=1 agent-orchestrator -e '…'` turns the app binary into a general-purpose Node.js interpreter. On v0.13.5 this prints `v20.18.3`. Together with `NODE_OPTIONS` and `--inspect`, this lets other local code run under the app's identity and inherit any OS-level trust or permissions granted to it. Electron's [fuses guide](https://www.electronjs.org/docs/latest/tutorial/fuses) recommends turning these off for apps that do not need them.
 
+**What could happen:** malware or a malicious package already running as the user, for example a compromised `postinstall` script in a repository an agent works on, starts the trusted app binary with `ELECTRON_RUN_AS_NODE=1` or `NODE_OPTIONS=--require …` and runs its own code under the app's identity. On macOS that code inherits what the user has granted the app, including access to its "Agent Orchestrator Safe Storage" Keychain item, which Chromium uses to encrypt the app's local data such as cookies, among them any imported into the embedded browser. Separately, with ASAR integrity validation and `OnlyLoadAppFromAsar` off, anyone who can write to the app's files can modify or replace `app.asar`, and the modified code loads silently on the next start. These scenarios need local code execution first. The fuses stop the trusted app from being used as a vehicle for it.
+
 ### 4. Vulnerable dependencies that actually ship
 
 `npm audit --omit=dev` in `frontend/` on the base reports 7 packages (1 critical, 2 high, 1 moderate, 3 low). These are bundled into the app. The assessment below is a best-effort reading of how each package is used, not a full audit:
@@ -74,6 +82,8 @@ With `RunAsNode` enabled, `ELECTRON_RUN_AS_NODE=1 agent-orchestrator -e '…'` t
 | fflate 0.4.8 | GHSA-px8p-9vwx-vf98 (moderate) | `posthog-js` | The advisory is about `unzipSync` parsing malformed ZIP64 archives. posthog-js uses fflate to compress outgoing payloads, so this is not believed reachable. |
 | dompurify 3.4.14 | GHSA-p98j-92pf-mc4p, GHSA-6688-9rhm-gjv2 (low) | direct; also used by `mermaid` and `posthog-js` | Both affect only the `IN_PLACE` mode. The app's own source does not use it, and the bundled consumers were not audited. |
 | katex 0.16.47 (and mermaid, via katex) | GHSA-238p-pmpm-9mq7 (low) | `mermaid` | Requires pre-existing prototype pollution. |
+
+**What could happen:** for the specific advisories above, the realistic impact is low, mostly denial of service or preconditions that the app does not meet. The broader point is that these libraries process content an attacker can influence: Markdown, Mermaid diagrams and math from repository files and agent output, and update metadata from the release feed. A crafted file in a repo, or agent output that echoes it, could hit a sanitizer or parser bug and cause XSS in the renderer, which talks to the main process over IPC. A tampered update feed could hang the updater. Keeping these parsers patched is cheap insurance.
 
 The other findings in `npm audit` without `--omit=dev` are build-time only. See [Remaining audit findings](#remaining-audit-findings).
 
@@ -144,6 +154,7 @@ npm run typecheck
 npx vitest run
 npm run package          # or your usual make/publish command
 npx @electron/fuses read --app "out/Agent Orchestrator-linux-x64/agent-orchestrator"
+# macOS arm64: npx @electron/fuses read --app "out/Agent Orchestrator-darwin-arm64/Agent Orchestrator.app"
 ```
 
 Notes:
@@ -152,7 +163,14 @@ Notes:
 - **node-abi.** If you regenerate the lockfile yourself, make sure the `node-abi` copy used by `@electron/rebuild` knows Electron 44 (4.37.0 or newer for the 4.x line). Otherwise packaging fails with `Could not detect abi for version 44.7.0`.
 - **better-sqlite3 and vitest.** `npm run package` rebuilds `better-sqlite3` for Electron in place in `node_modules`. If you run `vitest` after packaging, the native module has the Electron ABI and the `browser-profile-import` tests fail to load it. Restore a Node build first, for example by running `npx prebuild-install -r node` inside `node_modules/better-sqlite3`. This is upstream behavior and is not changed by the patches.
 
+## Before you switch to a patched build
+
+- **Version string.** A build from `main` carries the version from `frontend/package.json`, currently `0.13.0`, because upstream only bumps it at release time. The in-app updater therefore treats the patched build as older than the latest official release and offers to update to it (v0.13.5 at the time of writing). Accepting that update replaces the patched build and brings back Electron 33.
+- **No safe downgrade.** The SQLite migrations only run forward. Going back to an older official release after running a newer build is not guaranteed to work. Upstream notes in [`auto-updater.ts`](https://github.com/OrchestratorInc/agent-orchestrator/blob/6eb6c096741877bfdf12a8e0c4a462bf2cb92df8/frontend/src/main/auto-updater.ts#L163-L164) that "an older binary cannot safely read a database already migrated by this one". **Back up `~/.ao`** (and keep a copy of your current app) before switching in either direction.
+
 ## Testing done
+
+### Linux x64
 
 Environment: Linux x64 (Debian trixie container), Node 24.21.0, npm 11.19.0, Go 1.27.1, Xvfb. Everything was run on the upstream base first, then with the patches applied, using the same commands.
 
@@ -172,13 +190,31 @@ Environment: Linux x64 (Debian trixie container), Node 24.21.0, npm 11.19.0, Go 
 
 During development the same checks (typecheck, vitest, package, deb, launch) were also run cumulatively after each patch: 0001, then 0001+0002, then 0001–0003.
 
+### macOS arm64
+
+Environment: Apple Silicon Mac, macOS 27.0, Node 24. The app was packaged with `electron-forge` and ad-hoc signed (not notarized).
+
+- The three patches applied cleanly to the same base commit, with no changes.
+- The installed app reports **Electron 44.7.0**.
+- `npx @electron/fuses read` on the installed `.app`, for the six fuses set by patch 0003:
+  ```
+  RunAsNode is Disabled
+  EnableNodeOptionsEnvironmentVariable is Disabled
+  EnableNodeCliInspectArguments is Disabled
+  EnableEmbeddedAsarIntegrityValidation is Enabled
+  OnlyLoadAppFromAsar is Enabled
+  GrantFileProtocolExtraPrivileges is Disabled
+  ```
+- The build is in daily use against an existing data directory (`~/.ao`, several GB) previously used by official v0.13.4. The SQLite migrations ran forward on first start. Projects, sessions, project rules and instructions, agent launches, hooks and the embedded browser all keep working, with no functional differences observed compared with v0.13.4.
+- The full test suite was not re-run on macOS. The test results above are from Linux.
+
 ## Not tested
 
-- **macOS:** code signing, notarization, the Squirrel.Mac and differential updater paths, and the macOS-specific `app.dock` behavior.
-- **ASAR integrity:** `EnableEmbeddedAsarIntegrityValidation` is only enforced on macOS and Windows, so it is a no-op in the Linux build used here. It needs validation with the signed macOS and Windows builds.
+- **macOS:** Developer ID signing, notarization, the Squirrel.Mac and differential updater paths, and the macOS-specific `app.dock` behavior. The macOS build above was ad-hoc signed only.
+- **ASAR integrity:** `EnableEmbeddedAsarIntegrityValidation` is only enforced on macOS and Windows, so it is a no-op in the Linux build. The ad-hoc-signed macOS build runs normally with it enabled. It still needs validation with properly signed macOS builds and on Windows.
 - **Windows:** the NSIS installer and Squirrel/update flow.
 - **Linux packaging other than `.deb`:** rpm could not be built in the test environment (rpm 4.20 incompatibility of the rpm maker, also present on the base). AppImage was not rebuilt with the patches.
-- **Agents and logins:** no agent sessions, GitHub login or other account flows were exercised.
+- **Agents and logins:** on Linux, no agent sessions were exercised. On macOS, agent launches and hooks work (see above). GitHub login and other account flows were not specifically checked.
 - **Clipboard image copy** (the screenshot-to-clipboard actions of the embedded browser) through the UI. It is covered only by unit tests and type checks.
 - **`file://` pages in the embedded browser** with `GrantFileProtocolExtraPrivileges` disabled.
 - **Mermaid math rendering** with KaTeX 0.18.
@@ -195,7 +231,7 @@ With all three patches, `npm audit` in `frontend/` still reports 40 findings (1 
 
 ## About this work
 
-The analysis and patches were prepared with AI assistance and then verified on Linux x64 as described above. Every number and readout in this README comes from an actual run. If you find a mistake, please open an issue.
+The analysis and patches were prepared with AI assistance and then verified on Linux x64 and macOS arm64 as described above. Every number and readout in this README comes from an actual run. If you find a mistake, please open an issue.
 
 ## License
 
